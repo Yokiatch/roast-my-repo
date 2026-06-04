@@ -1,4 +1,3 @@
 requests
 python-dotenv
 groq
-gradio>=5.0.0
