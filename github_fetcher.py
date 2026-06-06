@@ -31,6 +31,8 @@ class RepoData:
     description: str
     primary_language: str
     stars: int
+    open_issues: int
+    contributors: int
     file_tree: list[str]
     file_contents: dict[str, str]   # filename → content
     has_readme: bool
@@ -126,12 +128,35 @@ def fetch_repo(url: str) -> RepoData:
         if content:
             file_contents[filepath] = content
 
+    # Fetch contributor count (per_page=1 + last page trick — cheap API call)
+    contributors = 0
+    try:
+        contrib_resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo_name}/contributors",
+            headers=get_headers(),
+            params={"per_page": 1, "anon": "false"},
+            timeout=10,
+        )
+        if contrib_resp.status_code == 200:
+            # Check Link header for last page number
+            link = contrib_resp.headers.get("Link", "")
+            if 'rel="last"' in link:
+                import re
+                match = re.search(r'page=(\d+)>; rel="last"', link)
+                contributors = int(match.group(1)) if match else 1
+            else:
+                contributors = len(contrib_resp.json())
+    except Exception:
+        pass
+
     return RepoData(
         owner=owner,
         repo_name=repo_name,
         description=meta.get("description") or "No description provided.",
         primary_language=meta.get("language") or "Unknown",
         stars=meta.get("stargazers_count", 0),
+        open_issues=meta.get("open_issues_count", 0),
+        contributors=contributors,
         file_tree=file_tree,
         file_contents=file_contents,
         has_readme=has_readme,

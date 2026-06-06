@@ -1,6 +1,6 @@
 import gradio as gr
 from github_fetcher import fetch_repo
-from analyzer import analyze_repo
+from analyzer import analyze_repo, classify_repo
 
 # ── Custom CSS — terminal hacker aesthetic ────────────────────────────────────
 CSS = """
@@ -294,6 +294,19 @@ footer, .built-with { display: none !important; }
     padding: 8px 14px !important;
 }
 
+/* ── Large repo warning ── */
+.large-repo-warning p {
+    font-family: var(--mono) !important;
+    font-size: 12px !important;
+    color: var(--amber) !important;
+    background: rgba(255, 170, 0, 0.06) !important;
+    border: 1px solid rgba(255, 170, 0, 0.2) !important;
+    border-left: 3px solid var(--amber) !important;
+    border-radius: 4px !important;
+    padding: 10px 14px !important;
+    margin: 4px 0 8px !important;
+}
+
 /* ── Divider ── */
 hr {
     border: none !important;
@@ -337,7 +350,7 @@ HEADER = """
             <span style="margin: 0 8px; color: #1a2332;">│</span>
             <span style="color: #ffaa00;">chapter-one: backyard-ai</span>
             <span style="margin: 0 8px; color: #1a2332;">│</span>
-            llama-3.1-8b · groq
+            minicpm4-8b · modal
         </div>
     </div>
     <h1 style="font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; color: #fff; margin: 0 0 6px; letter-spacing: -0.02em;">
@@ -364,16 +377,28 @@ FOOTER = """
 
 
 def roast_repo(github_url: str):
-    empty = ("", "", "", "", "", "")
+    empty = ("", "", "", "", "", "", "")
     if not github_url.strip():
-        yield ("⚠ please enter a github url", "", "", "", "", "")
+        yield ("⚠ please enter a github url", "", "", "", "", "", "")
         return
 
     try:
-        yield ("[ fetching repo... ]", "", "", "", "", "")
+        yield ("[ fetching repo... ]", "", "", "", "", "", "")
         data = fetch_repo(github_url.strip())
 
-        yield ("[ analyzing codebase... ]", "", "", "", "", "")
+        # ── Classify before analysis ──────────────────────────────────────────
+        classification = classify_repo(data)
+        large_repo_warning = ""
+        if classification["is_large"]:
+            reasons_str = " · ".join(classification["reasons"])
+            large_repo_warning = (
+                f"⚠ **This looks like a library, framework, or org-level project** "
+                f"({reasons_str}). "
+                f"The roast below is scored from a *personal portfolio* perspective "
+                f"and may not reflect the repo's actual quality or purpose."
+            )
+
+        yield ("[ analyzing codebase... ]", "", "", "", large_repo_warning, "", "")
         result = analyze_repo(data)
 
         sc = result["scorecard"]
@@ -404,7 +429,7 @@ def roast_repo(github_url: str):
         flags = result["red_flags"]
         flags_md = "\n".join([f"- 🚨 `{f}`" for f in flags]) if flags else "✅ no critical red flags found. rare."
 
-        summary_md = f"""**`{data.owner}/{data.repo_name}`** &nbsp;·&nbsp; ⭐ {data.stars} &nbsp;·&nbsp; `{data.primary_language}` &nbsp;·&nbsp; 📁 {data.total_files} files
+        summary_md = f"""**`{data.owner}/{data.repo_name}`** &nbsp;·&nbsp; ⭐ {data.stars:,} &nbsp;·&nbsp; `{data.primary_language}` &nbsp;·&nbsp; 📁 {data.total_files} files &nbsp;·&nbsp; 👥 {data.contributors} contributors
 
 _{data.description}_"""
 
@@ -413,14 +438,15 @@ _{data.description}_"""
             scorecard_md,
             flags_md,
             result["generated_readme"],
+            large_repo_warning,
             summary_md,
             "✅ done — scroll down for results",
         )
 
     except ValueError as e:
-        yield (f"❌ {e}", "", "", "", "", "error")
+        yield (f"❌ {e}", "", "", "", "", "", "error")
     except Exception as e:
-        yield (f"❌ unexpected error: {e}", "", "", "", "", "error")
+        yield (f"❌ unexpected error: {e}", "", "", "", "", "", "error")
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -459,6 +485,8 @@ with gr.Blocks(
 
         summary = gr.Markdown(elem_classes=["repo-summary"])
 
+        large_repo_warning = gr.Markdown(elem_classes=["large-repo-warning"])
+
         gr.HTML('<div style="height: 1px; background: #1a2332; margin: 8px 0;"></div>')
 
         with gr.Row():
@@ -484,13 +512,13 @@ with gr.Blocks(
     roast_btn.click(
         fn=roast_repo,
         inputs=[url_input],
-        outputs=[roast_out, scorecard_out, red_flags_out, readme_out, summary, status],
+        outputs=[roast_out, scorecard_out, red_flags_out, readme_out, large_repo_warning, summary, status],
     )
 
     url_input.submit(
         fn=roast_repo,
         inputs=[url_input],
-        outputs=[roast_out, scorecard_out, red_flags_out, readme_out, summary, status],
+        outputs=[roast_out, scorecard_out, red_flags_out, readme_out, large_repo_warning, summary, status],
     )
 
 if __name__ == "__main__":
