@@ -71,6 +71,29 @@ def serve():
     subprocess.Popen(" ".join(cmd), shell=True)
 
 
+@app.function(schedule=modal.Period(minutes=8))
+def keep_warm():
+    """
+    Pings the /health endpoint every 8 minutes so the vLLM container
+    never hits the 10-minute scaledown window during active use.
+    Run: modal deploy modal_app.py  (scheduler activates automatically)
+    """
+    import urllib.request
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    url = os.getenv("MODAL_ENDPOINT", "").rstrip("/")
+    if not url:
+        print("[keep_warm] MODAL_ENDPOINT not set, skipping.")
+        return
+    try:
+        req = urllib.request.Request(f"{url}/health")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            print(f"[keep_warm] ✅ {resp.status}")
+    except Exception as e:
+        print(f"[keep_warm] ⚠ {e}")
+
+
 # ── Local test entrypoint ─────────────────────────────────────────────────────
 @app.local_entrypoint()
 def main():

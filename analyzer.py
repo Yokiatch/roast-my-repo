@@ -14,11 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 load_dotenv()
 
 # ── Backend config ────────────────────────────────────────────────────────────
-# Set MODAL_ENDPOINT in .env after running: modal deploy modal_app.py
-# e.g. MODAL_ENDPOINT=https://your-workspace--roast-my-repo-serve.modal.run
-
 MODAL_ENDPOINT = os.getenv("MODAL_ENDPOINT", "").rstrip("/")
-MODAL_MODEL    = "minicpm4"   # served-model-name set in modal_app.py
+MODAL_MODEL    = "minicpm4"
 
 
 # ── Low-level call ────────────────────────────────────────────────────────────
@@ -45,7 +42,7 @@ def _call_modal(messages: list, max_tokens: int, temperature: float) -> str:
         f"{MODAL_ENDPOINT}/v1/chat/completions",
         json=payload,
         stream=True,
-        timeout=300,   # 5 min — streaming keeps connection alive, cold start safe
+        timeout=300,
     )
     if resp.status_code != 200:
         raise ValueError(
@@ -82,7 +79,7 @@ def build_context(data: RepoData) -> str:
         f"HAS DOCKERFILE: {data.has_dockerfile}",
         "",
         f"FILE TREE ({len(data.file_tree)} total files):",
-        "\n".join(data.file_tree[:40]),   # trimmed from 60 → 40 for speed
+        "\n".join(data.file_tree[:40]),
         "",
         f"FILE CONTENTS ({len(data.file_contents)} files fetched):",
     ]
@@ -101,9 +98,8 @@ LARGE_REPO_THRESHOLDS = {
 
 def classify_repo(data: RepoData) -> dict:
     """
-    Returns a dict with:
-      is_large  — bool, True if repo looks like a library/framework/org project
-      reasons   — list of triggered thresholds (for the UI message)
+    Returns is_large=True if repo looks like a library/framework/org project,
+    along with the reasons that triggered it (for the UI warning banner).
     """
     reasons = []
     if data.stars >= LARGE_REPO_THRESHOLDS["stars"]:
@@ -115,7 +111,7 @@ def classify_repo(data: RepoData) -> dict:
     return {"is_large": len(reasons) > 0, "reasons": reasons}
 
 
-
+# ── JSON parser ───────────────────────────────────────────────────────────────
 
 def _parse_json_response(raw: str) -> dict:
     # Strip <think> tags (MiniCPM4 may emit chain-of-thought)
@@ -168,27 +164,46 @@ No explanation, no markdown fences, no backticks — output raw JSON only:
 {{
   "roast": "A 4-6 sentence brutal but funny roast. Reference actual filenames and code you saw. Be specific, not generic.",
   "scorecard": {{
-    "code_quality":    {{ "score": 7, "reason": "one sentence" }},
-    "documentation":  {{ "score": 3, "reason": "one sentence" }},
-    "security":       {{ "score": 5, "reason": "one sentence" }},
-    "structure":      {{ "score": 6, "reason": "one sentence" }},
-    "portfolio_value":{{ "score": 4, "reason": "one sentence" }}
+    "code_quality":    {{ "score": <INT 1-10>, "reason": "one sentence" }},
+    "documentation":  {{ "score": <INT 1-10>, "reason": "one sentence" }},
+    "security":       {{ "score": <INT 1-10>, "reason": "one sentence" }},
+    "structure":      {{ "score": <INT 1-10>, "reason": "one sentence" }},
+    "portfolio_value":{{ "score": <INT 1-10>, "reason": "one sentence" }}
   }},
   "red_flags": [
     "specific red flag referencing actual file or code",
     "specific red flag 2",
     "specific red flag 3"
   ],
-  "hire_score": 6,
+  "hire_score": <INT 1-10>,
   "hire_verdict": "One punchy sentence — would a recruiter close the tab or keep reading?"
 }}
 
-Rules:
-- All scores are integers 1-10
-- Red flags must be specific to THIS repo — no generic advice
+Scoring rules — be brutally accurate, never default to middle scores out of politeness:
+- Score 1-2: missing basics, an embarrassment to put on a portfolio
+- Score 3-4: barely functional, obvious critical gaps
+- Score 5-6: mediocre, nothing impressive
+- Score 7-8: genuinely solid work
+- Score 9-10: exceptional, rare
+
+Automatic score overrides — apply these regardless of anything else:
+- Committed .env file → security score is 1, no exceptions
+- Fewer than 5 meaningful files → structure score 1-2, portfolio_value score 1-2
+- No README → documentation score 1
+- hire_score 1-2 means recruiter closes the tab immediately
+- hire_score 3-4 means recruiter skims and moves on
+- hire_score 5+ means recruiter actually considers reaching out
+
+Ground truth security facts — trust these, do NOT contradict them:
+- HAS .ENV FILE COMMITTED is {str(data.has_env_file).upper()} — only flag a committed .env if this is TRUE
+- HAS .ENV.EXAMPLE is {str(data.has_env_example).upper()} — do NOT flag missing .env.example unless this repo clearly needs one (i.e. it uses secrets or environment variables)
+- NEVER mention .env or .env.example as a red flag if HAS .ENV FILE COMMITTED is FALSE and the repo has no obvious need for secrets
+- NEVER invent security issues that aren't visible in the actual file contents or metadata above
+
+Other rules:
+- Red flags must be specific to THIS repo — reference actual filenames and code
 - Roast must reference actual filenames or code you saw
-- If the repo is genuinely good, say so — don't manufacture problems
-- hire_score is overall recruiter impression out of 10
+- If the repo is genuinely good, reflect that honestly — don't manufacture problems
 - Output only the JSON object, nothing else"""
 
     readme_prompt = f"""You are a technical writer. Write a complete, professional README.md for the following GitHub repository.
