@@ -11,14 +11,18 @@ PRIORITY_FILES = [
     "requirements.txt", "package.json", "Pipfile", "pyproject.toml",
     "main.py", "app.py", "index.py", "server.py",
     "index.js", "index.ts", "app.js", "app.ts",
-    ".gitignore", ".env.example", ".env",
+    ".gitignore", ".env.example",
     "Dockerfile", "docker-compose.yml",
-    "config.py", "settings.py", "utils.py",
+    "config.py", "settings.py", "utils.py", "helpers.py",
 ]
+# NOTE: .env intentionally excluded — we detect its presence via has_env_file
+# but never fetch the contents (could contain real secrets)
 
 # File extensions we can read as text
 TEXT_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".txt",
                    ".md", ".yml", ".yaml", ".toml", ".cfg", ".ini", ".env"}
+
+MAX_FILES = 12  # fetch up to 12 files for richer analysis
 
 @dataclass
 class RepoData:
@@ -65,8 +69,16 @@ def fetch_repo(url: str) -> RepoData:
     )
     if meta_resp.status_code == 404:
         raise ValueError(f"Repo '{owner}/{repo_name}' not found. Is it public?")
+    if meta_resp.status_code == 429 or meta_resp.status_code == 403:
+        reset = meta_resp.headers.get("X-RateLimit-Reset", "")
+        msg = "GitHub rate limit hit — add a GITHUB_TOKEN to .env for higher limits"
+        if reset:
+            import time
+            wait = max(0, int(reset) - int(time.time()))
+            msg += f" (resets in ~{wait}s)"
+        raise ValueError(msg)
     if meta_resp.status_code != 200:
-        raise ValueError(f"GitHub API error: {meta_resp.status_code}")
+        raise ValueError(f"GitHub API error {meta_resp.status_code}: {meta_resp.text[:200]}")
 
     meta = meta_resp.json()
 
@@ -77,8 +89,12 @@ def fetch_repo(url: str) -> RepoData:
     if tree_resp.status_code != 200:
         file_tree = []
     else:
-        all_items = tree_resp.json().get("tree", [])
+        tree_data = tree_resp.json()
+        all_items = tree_data.get("tree", [])
+        # GitHub truncates at 100k nodes — warn in file_tree if so
         file_tree = [item["path"] for item in all_items if item["type"] == "blob"]
+        if tree_data.get("truncated"):
+            file_tree.insert(0, "⚠ tree truncated by GitHub (>100k nodes)")
 
     file_tree_lower = [f.lower() for f in file_tree]
     has_readme      = any("readme" in f for f in file_tree_lower)
@@ -94,15 +110,15 @@ def fetch_repo(url: str) -> RepoData:
         matches = [f for f in file_tree if f.lower() == priority.lower() or f.lower().endswith("/" + priority.lower())]
         if matches:
             files_to_fetch.append(matches[0])
-        if len(files_to_fetch) >= 4:
+        if len(files_to_fetch) >= MAX_FILES:
             break
 
-    if len(files_to_fetch) < 4:
+    if len(files_to_fetch) < MAX_FILES:
         for f in file_tree:
             ext = "." + f.split(".")[-1] if "." in f else ""
             if ext in TEXT_EXTENSIONS and f not in files_to_fetch:
                 files_to_fetch.append(f)
-            if len(files_to_fetch) >= 4:
+            if len(files_to_fetch) >= MAX_FILES:
                 break
 
     for filepath in files_to_fetch:
@@ -138,7 +154,7 @@ def fetch_file_content(owner: str, repo: str, filepath: str) -> str | None:
         data = resp.json()
         if data.get("encoding") == "base64":
             content = base64.b64decode(data["content"]).decode("utf-8", errors="ignore")
-            return content[:1500] if len(content) > 1500 else content
+            return content[:3000] if len(content) > 3000 else content
         return None
     except Exception:
         return None
