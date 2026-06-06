@@ -337,7 +337,7 @@ HEADER = """
             <span style="margin: 0 8px; color: #1a2332;">│</span>
             <span style="color: #ffaa00;">chapter-one: backyard-ai</span>
             <span style="margin: 0 8px; color: #1a2332;">│</span>
-            llama-3.1-8b · groq
+            minicpm4-8b · modal
         </div>
     </div>
     <h1 style="font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; color: #fff; margin: 0 0 6px; letter-spacing: -0.02em;">
