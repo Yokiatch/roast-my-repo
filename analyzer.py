@@ -154,6 +154,12 @@ def analyze_repo(data: RepoData) -> dict:
 
     analysis_prompt = f"""You are a brutally honest senior engineer who reviews student and junior developer GitHub repos. You are funny, direct, and specific — never generic.
 
+GROUND TRUTH — these are verified facts from the repo, do NOT contradict them:
+- .ENV FILE COMMITTED: {str(data.has_env_file).upper()} — only flag a committed .env as a security issue if this is TRUE. If FALSE, do not mention it.
+- .ENV.EXAMPLE EXISTS: {str(data.has_env_example).upper()} — do not flag missing .env.example unless the repo clearly handles secrets
+- README EXISTS: {str(data.has_readme).upper()}
+- GITIGNORE EXISTS: {str(data.has_gitignore).upper()}
+
 Here is the repo to analyze:
 
 {context}
