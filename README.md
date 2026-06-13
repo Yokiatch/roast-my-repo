@@ -164,6 +164,11 @@ roast-my-repo/
 
 ---
 
+## Dataset
+One analysis trace logged publicly for transparency: [moosetape/roast-my-repo-traces](https://huggingface.co/datasets/moosetape/roast-my-repo-traces)
+
+---
+
 ## License
 
 MIT — built by [Yokiatch](https://github.com/Yokiatch) for the HuggingFace Build Small Hackathon 2026.
